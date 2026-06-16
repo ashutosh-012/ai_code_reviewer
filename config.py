@@ -1,5 +1,29 @@
-from dotenv import load_dotenv
+import importlib
 import os
+
+try:
+    load_dotenv = importlib.import_module("dotenv").load_dotenv
+except Exception:
+    def load_dotenv(dotenv_path=".env", override=False):
+        try:
+            if hasattr(dotenv_path, "read_text"):
+                dotenv_path = str(dotenv_path)
+            if not os.path.isfile(dotenv_path):
+                return False
+            with open(dotenv_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        k, v = line.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip('"').strip("'")
+                        if override or k not in os.environ:
+                            os.environ[k] = v
+            return True
+        except Exception:
+            return False
 
 load_dotenv()
 
