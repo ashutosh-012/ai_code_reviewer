@@ -1,10 +1,10 @@
-from langchain_ollama import OllamaLLM
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 from config import cfg
 from core.cache import llm_cache
 
-# Initialize the local LLM running on your machine
-llm = OllamaLLM(model=cfg.model, base_url=cfg.ollama_url, temperature=0.1)
+# Initialize the Gemini API
+llm = ChatGoogleGenerativeAI(model=cfg.model, api_key=cfg.gemini_api_key, temperature=0.1)
 
 _prompt = PromptTemplate.from_template(
     "You are a senior developer reviewing code. Keep it brief, polite, and helpful (max 2 sentences).\n"
@@ -22,13 +22,13 @@ def explain_issue(issue: dict, code_context: str) -> str:
     if cached:
         return cached
 
-    # 2. Invoke Local AI
+    # 2. Invoke Gemini AI
     try:
         res = chain.invoke({
             "msg": issue.get("msg", ""),
             "code": code_context[:500] 
         })
-        explanation = res.strip()
+        explanation = res.content.strip() if hasattr(res, "content") else str(res).strip()
         
         # 3. Save to Cache
         llm_cache.put(cache_key, explanation)
