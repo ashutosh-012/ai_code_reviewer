@@ -1,10 +1,14 @@
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 from config import cfg
 from core.cache import llm_cache
 
-# Initialize the Gemini API
-llm = ChatGoogleGenerativeAI(model=cfg.model, api_key=cfg.gemini_api_key, temperature=0.1)
+# Initialize based on provider
+if cfg.llm_provider == "groq":
+    from langchain_groq import ChatGroq
+    llm = ChatGroq(model=cfg.groq_model, api_key=cfg.groq_api_key, temperature=0.1)
+else:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    llm = ChatGoogleGenerativeAI(model=cfg.model, api_key=cfg.gemini_api_key, temperature=0.1)
 
 _prompt = PromptTemplate.from_template(
     "You are a senior developer reviewing code. Keep it brief, polite, and helpful (max 2 sentences).\n"
