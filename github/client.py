@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 import urllib.request
 import urllib.parse
 from typing import Optional
@@ -97,96 +98,128 @@ class GHClient:
         file_cache.put(cache_key, raw)
         return raw
 
-    def post_review(self, owner, repo, pr_num, sha, summary, comments, has_critical):
-        url = f"{self.base}/repos/{owner}/{repo}/pulls/{pr_num}/reviews"
-        sev_emoji = {"CRITICAL": "🚨", "HIGH": "⚠️", "MEDIUM": "🔵", "LOW": "💡"}
-
-        fmt_comments = []
-        for issue in comments[:cfg.max_comments]:
-            if not issue.get("file") or not issue.get("line"):
+    def _get_diff_lines(self, owner, repo, pr_num):
+        """Parse PR diffs to find which line numbers are valid for inline comments."""
+        files = self.pr_files(owner, repo, pr_num)
+        diff_lines = {}
+        for f in files:
+            filename = f.get("filename", "")
+            patch = f.get("patch", "")
+            valid = set()
+            if not patch:
+                diff_lines[filename] = valid
                 continue
-            emoji = sev_emoji.get(issue.get("sev", "LOW"), "ℹ️")
-            agent = issue.get("agent", "").title()
-            body = f"{emoji} **[{issue.get('sev')} — {agent}]** {issue.get('msg', '')}"
+            current_line = 0
+            for line in patch.split("\n"):
+                if line.startswith("@@"):
+                    m = re.search(r'\+(\d+)', line)
+                    if m:
+                        current_line = int(m.group(1))
+                elif line.startswith("-"):
+                    pass
+                elif line.startswith("+"):
+                    valid.add(current_line)
+                    current_line += 1
+                else:
+                    valid.add(current_line)
+                    current_line += 1
+            diff_lines[filename] = valid
+        return diff_lines
+
+    def post_review(self, owner, repo, pr_num, sha, summary, comments, has_critical):
+        # Get valid diff lines so inline comments land correctly
+        diff_lines = self._get_diff_lines(owner, repo, pr_num)
+        print(f"DEBUG - Diff lines found for {len(diff_lines)} files")
+
+        # Split comments into inline-able vs overflow
+        inline_comments = []
+        overflow_comments = []
+
+        for issue in comments[:cfg.max_comments]:
+            f = issue.get("file")
+            line = issue.get("line")
+            if not f or not line:
+                overflow_comments.append(issue)
+                continue
+
+            agent = issue.get("agent", "").lower()
+            sev = issue.get("sev", "LOW").lower()
+            body = f"**[{sev} | {agent}]** {issue.get('msg', '')}"
             if issue.get("ai_note"):
                 body += f"\n\n{issue['ai_note']}"
             if issue.get("fix"):
-                body += f"\n\n**Fix:** `{issue['fix']}`"
-            fmt_comments.append({
-                "path": issue["file"],
-                "line": issue["line"],
-                "side": "RIGHT",
-                "body": body
-            })
+                body += f"\n\nFix: `{issue['fix']}`"
 
-        # Attempt 1: Try posting as inline review comments
+            if f in diff_lines and line in diff_lines[f]:
+                inline_comments.append({
+                    "path": f,
+                    "line": line,
+                    "side": "RIGHT",
+                    "body": body
+                })
+            else:
+                overflow_comments.append(issue)
+
+        # Build summary with overflow issues table
+        full_summary = summary
+        if overflow_comments:
+            full_summary += "\n\n---\n\n**Issues on lines outside the diff:**\n\n"
+            full_summary += "| # | Severity | File | Line | Agent | Issue | Fix |\n"
+            full_summary += "|---|----------|------|------|-------|-------|-----|\n"
+            for i, issue in enumerate(overflow_comments, 1):
+                sev = issue.get("sev", "LOW").lower()
+                fix_text = issue.get("fix", "").replace("|", "\\|")
+                msg_text = issue.get("msg", "").replace("|", "\\|")
+                full_summary += (
+                    f"| {i} | {sev} "
+                    f"| `{issue.get('file', '')}` "
+                    f"| L{issue.get('line', '?')} "
+                    f"| {issue.get('agent', '').lower()} "
+                    f"| {msg_text} "
+                    f"| {fix_text} |\n"
+                )
+
+        url = f"{self.base}/repos/{owner}/{repo}/pulls/{pr_num}/reviews"
         payload = {
             "commit_id": sha,
-            "body": summary,
+            "body": full_summary,
             "event": "REQUEST_CHANGES" if has_critical else "COMMENT",
-            "comments": fmt_comments
+            "comments": inline_comments
         }
-        print(f"DEBUG - Posting review with {len(fmt_comments)} inline comments")
+
+        print(f"DEBUG - Posting {len(inline_comments)} inline + {len(overflow_comments)} overflow")
         r = requests.post(url, json=payload, headers=self.headers, timeout=15)
-        print(f"DEBUG - GitHub POST review response: {r.status_code}")
+        print(f"DEBUG - GitHub review response: {r.status_code}")
 
         if r.status_code in [200, 201]:
-            print("DEBUG - Inline review posted successfully!")
+            print("DEBUG - Review with inline comments posted successfully!")
             return True
 
-        # Attempt 2: Try without inline comments (just the summary as a review)
-        print(f"DEBUG - Inline comments failed ({r.status_code}), trying summary-only review...")
-        payload_no_inline = {
-            "commit_id": sha,
-            "body": summary,
-            "event": "COMMENT",
-            "comments": []
-        }
-        r2 = requests.post(url, json=payload_no_inline, headers=self.headers, timeout=15)
-        print(f"DEBUG - Summary-only review response: {r2.status_code}")
+        print(f"DEBUG - Review failed: {r.json()}")
 
-        # Attempt 3: Post all findings as a single issue comment (always works)
+        # Fallback: post everything as a single issue comment
+        print("DEBUG - Falling back to issue comment...")
         comment_url = f"{self.base}/repos/{owner}/{repo}/issues/{pr_num}/comments"
-        
-        body_lines = [summary, "", "---", ""]
-        body_lines.append("| # | Sev | File | Line | Agent | Issue | Fix |")
-        body_lines.append("|---|-----|------|------|-------|-------|-----|")
+
+        lines = [summary, "", "---", ""]
+        lines.append("| # | Severity | File | Line | Agent | Issue | Fix |")
+        lines.append("|---|----------|------|------|-------|-------|-----|")
         for i, issue in enumerate(comments[:cfg.max_comments], 1):
-            emoji = sev_emoji.get(issue.get("sev", "LOW"), "ℹ️")
+            sev = issue.get("sev", "LOW").lower()
             fix_text = issue.get("fix", "").replace("|", "\\|")
             msg_text = issue.get("msg", "").replace("|", "\\|")
-            body_lines.append(
-                f"| {i} | {emoji} {issue.get('sev', 'LOW')} "
+            lines.append(
+                f"| {i} | {sev} "
                 f"| `{issue.get('file', '')}` "
                 f"| L{issue.get('line', '?')} "
-                f"| {issue.get('agent', '').title()} "
+                f"| {issue.get('agent', '').lower()} "
                 f"| {msg_text} "
                 f"| {fix_text} |"
             )
-        
-        # Add AI explanations for critical issues
-        critical_notes = []
-        for issue in comments[:cfg.max_comments]:
-            if issue.get("ai_note") and issue.get("sev") in ["CRITICAL", "HIGH"]:
-                critical_notes.append(
-                    f"**{sev_emoji.get(issue.get('sev'))} `{issue.get('file')}` L{issue.get('line')}** — "
-                    f"{issue.get('msg')}\n> {issue.get('ai_note')}"
-                )
-        if critical_notes:
-            body_lines.append("")
-            body_lines.append("### 🔍 AI Explanations (Critical/High only)")
-            body_lines.append("")
-            body_lines.extend(critical_notes)
 
-        issue_body = "\n".join(body_lines)
-        r3 = requests.post(comment_url, json={"body": issue_body}, headers=self.headers, timeout=15)
-        print(f"DEBUG - Issue comment response: {r3.status_code}")
-        
-        if r3.status_code in [200, 201]:
-            print("DEBUG - Posted findings as PR comment successfully!")
-            return True
-        else:
-            print(f"DEBUG - Issue comment failed: {r3.json()}")
-            return False
+        body = "\n".join(lines)
+        r2 = requests.post(comment_url, json={"body": body}, headers=self.headers, timeout=15)
+        print(f"DEBUG - Fallback comment response: {r2.status_code}")
+        return r2.status_code in [200, 201]
 
 gh = GHClient()

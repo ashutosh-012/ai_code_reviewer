@@ -82,7 +82,7 @@ def ai_explain(state: PRState):
 
 def post_to_github(state: PRState):
     """Sends the final payload back to the PR."""
-    summary = f"## 🤖 AI Code Review Complete\nAnalyzed {len(state['files_to_check'])} files. Found {len(state['final_comments'])} prioritized issues."
+    summary = f"## AI Code Review Complete\nAnalyzed {len(state['files_to_check'])} files. Found {len(state['final_comments'])} prioritized issues."
     gh.post_review(
         state["owner"], state["repo"], state["pr_num"], state["sha"],
         summary, state["final_comments"], state["has_critical"]
