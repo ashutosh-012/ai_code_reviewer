@@ -119,13 +119,74 @@ class GHClient:
                 "body": body
             })
 
+        # Attempt 1: Try posting as inline review comments
         payload = {
             "commit_id": sha,
             "body": summary,
             "event": "REQUEST_CHANGES" if has_critical else "COMMENT",
             "comments": fmt_comments
         }
+        print(f"DEBUG - Posting review with {len(fmt_comments)} inline comments")
         r = requests.post(url, json=payload, headers=self.headers, timeout=15)
-        return r.status_code in [200, 201]
+        print(f"DEBUG - GitHub POST review response: {r.status_code}")
+
+        if r.status_code in [200, 201]:
+            print("DEBUG - Inline review posted successfully!")
+            return True
+
+        # Attempt 2: Try without inline comments (just the summary as a review)
+        print(f"DEBUG - Inline comments failed ({r.status_code}), trying summary-only review...")
+        payload_no_inline = {
+            "commit_id": sha,
+            "body": summary,
+            "event": "COMMENT",
+            "comments": []
+        }
+        r2 = requests.post(url, json=payload_no_inline, headers=self.headers, timeout=15)
+        print(f"DEBUG - Summary-only review response: {r2.status_code}")
+
+        # Attempt 3: Post all findings as a single issue comment (always works)
+        comment_url = f"{self.base}/repos/{owner}/{repo}/issues/{pr_num}/comments"
+        
+        body_lines = [summary, "", "---", ""]
+        body_lines.append("| # | Sev | File | Line | Agent | Issue | Fix |")
+        body_lines.append("|---|-----|------|------|-------|-------|-----|")
+        for i, issue in enumerate(comments[:cfg.max_comments], 1):
+            emoji = sev_emoji.get(issue.get("sev", "LOW"), "ℹ️")
+            fix_text = issue.get("fix", "").replace("|", "\\|")
+            msg_text = issue.get("msg", "").replace("|", "\\|")
+            body_lines.append(
+                f"| {i} | {emoji} {issue.get('sev', 'LOW')} "
+                f"| `{issue.get('file', '')}` "
+                f"| L{issue.get('line', '?')} "
+                f"| {issue.get('agent', '').title()} "
+                f"| {msg_text} "
+                f"| {fix_text} |"
+            )
+        
+        # Add AI explanations for critical issues
+        critical_notes = []
+        for issue in comments[:cfg.max_comments]:
+            if issue.get("ai_note") and issue.get("sev") in ["CRITICAL", "HIGH"]:
+                critical_notes.append(
+                    f"**{sev_emoji.get(issue.get('sev'))} `{issue.get('file')}` L{issue.get('line')}** — "
+                    f"{issue.get('msg')}\n> {issue.get('ai_note')}"
+                )
+        if critical_notes:
+            body_lines.append("")
+            body_lines.append("### 🔍 AI Explanations (Critical/High only)")
+            body_lines.append("")
+            body_lines.extend(critical_notes)
+
+        issue_body = "\n".join(body_lines)
+        r3 = requests.post(comment_url, json={"body": issue_body}, headers=self.headers, timeout=15)
+        print(f"DEBUG - Issue comment response: {r3.status_code}")
+        
+        if r3.status_code in [200, 201]:
+            print("DEBUG - Posted findings as PR comment successfully!")
+            return True
+        else:
+            print(f"DEBUG - Issue comment failed: {r3.json()}")
+            return False
 
 gh = GHClient()
