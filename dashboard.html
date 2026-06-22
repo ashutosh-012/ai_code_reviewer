@@ -889,6 +889,75 @@
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.12); border-radius: 10px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.22); }
+
+    [data-theme="light"] {
+      --base: #F1F5F9;
+      --surface: #FFFFFF;
+      --surface-2: #F8FAFC;
+      --glass: rgba(255,255,255,0.9);
+      --border: rgba(0,0,0,0.07);
+      --border-hover: rgba(34,211,238,0.35);
+      --txt: #0F172A;
+      --txt-2: #334155;
+      --txt-3: #64748B;
+    }
+    [data-theme="light"] #sidebar { background: rgba(248,250,252,0.98); }
+    [data-theme="light"] #header { background: rgba(248,250,252,0.95); }
+    [data-theme="light"] .search-wrap { background: rgba(241,245,249,0.9); }
+    [data-theme="light"] .icon-btn { background: rgba(241,245,249,0.9); }
+    [data-theme="light"] .btn-ghost { background: rgba(241,245,249,0.9); }
+    [data-theme="light"] .detail-row td { background: rgba(241,245,249,0.8) !important; }
+    [data-theme="light"] .filter-btn { background: rgba(241,245,249,0.8); }
+    [data-theme="light"] .page-btn { background: rgba(241,245,249,0.8); }
+
+    .notif-wrapper { position: relative; }
+    .notif-panel {
+      display: none;
+      position: absolute;
+      top: 44px; right: 0;
+      width: 340px;
+      background: var(--surface);
+      border: 1px solid var(--border-hover);
+      border-radius: var(--radius);
+      box-shadow: 0 16px 48px rgba(0,0,0,0.35);
+      z-index: 300;
+      overflow: hidden;
+    }
+    .notif-panel.open { display: block; animation: dropIn 0.2s ease; }
+    @keyframes dropIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .notif-panel-hdr {
+      padding: 13px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 13px; font-weight: 700; color: var(--txt);
+    }
+    .notif-panel-hdr span { font-size: 11px; color: var(--cyan); cursor: pointer; }
+    .notif-item {
+      padding: 11px 16px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .notif-item:hover { background: rgba(34,211,238,0.04); }
+    .notif-item:last-child { border-bottom: none; }
+    .notif-item-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px; }
+    .notif-item-repo { font-size: 12px; font-weight: 700; color: var(--txt); }
+    .notif-item-body { font-size: 11.5px; color: var(--txt-2); line-height: 1.4; }
+    .notif-empty { padding: 28px; text-align: center; color: var(--txt-3); font-size: 12px; }
+    .notif-badge {
+      position: absolute;
+      top: 5px; right: 5px;
+      min-width: 16px; height: 16px;
+      background: var(--danger);
+      border-radius: 10px;
+      border: 2px solid var(--base);
+      font-size: 9px; font-weight: 700; color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0 3px; line-height: 1;
+    }
   </style>
 </head>
 <body>
@@ -989,12 +1058,22 @@
           <span class="kbd">⌘K</span>
         </div>
 
-        <button class="icon-btn" title="Notifications" onclick="showToast('3 new vulnerability alerts')">
-          <i class="fa-solid fa-bell"></i>
-          <div class="notif-pip"></div>
-        </button>
-        <button class="icon-btn" title="Terminal">
-          <i class="fa-solid fa-terminal"></i>
+        <div class="notif-wrapper">
+          <button class="icon-btn" id="bellBtn" title="PR Review Notifications" onclick="toggleNotif(event)">
+            <i class="fa-solid fa-bell"></i>
+            <span id="notifBadge" class="notif-badge" style="display:none;">0</span>
+          </button>
+          <div id="notifPanel" class="notif-panel">
+            <div class="notif-panel-hdr">
+              PR Review Alerts
+              <span onclick="clearNotifs()">Clear all</span>
+            </div>
+            <div id="notifList"><div class="notif-empty">No alerts yet</div></div>
+          </div>
+        </div>
+
+        <button class="icon-btn" id="themeBtn" title="Toggle light / dark mode" onclick="toggleTheme()">
+          <i class="fa-solid fa-moon" id="themeIcon"></i>
         </button>
 
         <div style="width: 1px; height: 24px; background: var(--border); margin: 0 2px;"></div>
@@ -1005,7 +1084,7 @@
         </button>
         <button class="btn-primary" id="scanBtn" onclick="triggerScan()">
           <i class="fa-solid fa-rotate-right" style="font-size: 11px;" id="scanIcon"></i>
-          Run Scan
+          Refresh
         </button>
 
         <div class="avatar" style="cursor: pointer;" title="Ashu — AI Engineer Intern">A</div>
@@ -1147,7 +1226,7 @@
             <i class="fa-solid fa-microchip"></i>
           </div>
           <div>
-            <div class="sec-val" style="font-size: 14px; letter-spacing: -0.01em;">GPT-4o</div>
+            <div class="sec-val" style="font-size: 12px; letter-spacing: -0.01em;">Llama 3.3 (Groq)</div>
             <div class="sec-lbl">AI Model Active</div>
           </div>
         </div>
@@ -1198,7 +1277,7 @@
 
         <div class="table-footer">
           <div class="footer-meta">
-            Powered by <span>Bandit · Ruff · Radon</span> + AI via GPT-4o
+            Powered by <span>Bandit · Ruff · Radon</span> + AI via Groq (Llama 3.3)
           </div>
           <div class="pager">
             <button class="page-btn" title="Previous">‹</button>
@@ -1429,30 +1508,114 @@ function handleSearch(q) {
   renderTable(filtered);
 }
 
+function repoColor(name) {
+  const palette = ['#22D3EE','#818CF8','#F472B6','#FB923C','#F87171','#A78BFA','#34D399','#FCD34D'];
+  let h = 0;
+  for (const c of (name || '')) h = (h * 31 + c.charCodeAt(0)) % palette.length;
+  return palette[h];
+}
+
 async function loadLogs() {
   try {
-    const res = await fetch('/api/logs', { signal: AbortSignal.timeout(3000) });
+    const res = await fetch('/api/logs', { signal: AbortSignal.timeout(4000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    
+
     logs = data.map(dbRow => ({
       repo: dbRow.repo_name,
-      repoColor: '#22D3EE', 
+      repoColor: repoColor(dbRow.repo_name),
       pr: '#PR-' + dbRow.pr_number,
       file: dbRow.file_path,
       severity: dbRow.severity,
       rule: dbRow.rule_id,
       explanation: dbRow.message,
-      fix: dbRow.ai_explanation,
-      status: dbRow.severity === 'CRITICAL' ? 'blocked' : 'review'
+      fix: dbRow.ai_explanation || '',
+      status: dbRow.severity === 'CRITICAL' ? 'blocked' : dbRow.severity === 'HIGH' ? 'flagged' : 'review'
     }));
 
+    const uniquePRs = new Set(data.map(r => r.pr_number)).size;
+    const critCount = data.filter(r => r.severity === 'CRITICAL').length;
+    const highCount = data.filter(r => r.severity === 'HIGH').length;
+    animateCounter('val-prs', uniquePRs || 1, '', 900);
+    animateCounter('val-threats', critCount, '', 900);
+    animateCounter('val-hours', Math.max(1, Math.round(data.length * 0.5)), 'h', 900);
+
+    document.querySelector('.table-actions').innerHTML = `
+      <span class="sev-chip" style="background:var(--danger-dim);color:var(--danger);border:1px solid rgba(251,113,133,0.2);">CRITICAL ${critCount}</span>
+      <span class="sev-chip" style="background:var(--warning-dim);color:var(--warning);border:1px solid rgba(251,146,60,0.2);">HIGH ${highCount}</span>`;
+
+    document.getElementById('lastScan').textContent = 'just now';
+    buildNotifications(logs);
     renderTable(logs);
-    showToast('Live database loaded');
+    showToast(`Loaded ${data.length} records from database`);
   } catch (_) {
-    console.info('API unavailable — rendering mock security logs');
+    console.info('API unavailable — showing mock data');
     logs = ALL_LOGS;
     renderTable(logs);
+  }
+}
+
+let notifData = [];
+function toggleNotif(e) {
+  e.stopPropagation();
+  document.getElementById('notifPanel').classList.toggle('open');
+}
+document.addEventListener('click', () => {
+  const p = document.getElementById('notifPanel');
+  if (p) p.classList.remove('open');
+});
+
+function buildNotifications(data) {
+  const byPR = {};
+  data.forEach(row => {
+    const key = row.pr;
+    if (!byPR[key]) byPR[key] = { repo: row.repo, pr: row.pr, issues: [] };
+    byPR[key].issues.push(row.severity);
+  });
+  notifData = Object.values(byPR).slice(0, 8);
+  renderNotifs();
+}
+
+function renderNotifs() {
+  const list = document.getElementById('notifList');
+  const badge = document.getElementById('notifBadge');
+  if (!notifData.length) {
+    list.innerHTML = '<div class="notif-empty">No PR review alerts</div>';
+    badge.style.display = 'none';
+    return;
+  }
+  badge.style.display = 'flex';
+  badge.textContent = notifData.length;
+  list.innerHTML = notifData.map(n => {
+    const crit = n.issues.filter(s => s === 'CRITICAL').length;
+    const high = n.issues.filter(s => s === 'HIGH').length;
+    const chips = [
+      crit ? `<span style="color:var(--danger);font-weight:700;font-size:10.5px;">${crit} CRITICAL</span>` : '',
+      high ? `<span style="color:var(--warning);font-weight:700;font-size:10.5px;">${high} HIGH</span>` : ''
+    ].filter(Boolean).join('&nbsp;&nbsp;');
+    return `<div class="notif-item">
+      <div class="notif-item-top"><span class="notif-item-repo">${n.repo} &nbsp;·&nbsp; ${n.pr}</span></div>
+      <div class="notif-item-body">${n.issues.length} issue${n.issues.length !== 1 ? 's' : ''} found &nbsp; ${chips}</div>
+    </div>`;
+  }).join('');
+}
+
+function clearNotifs() {
+  notifData = [];
+  renderNotifs();
+}
+
+function toggleTheme() {
+  const html = document.documentElement;
+  const icon = document.getElementById('themeIcon');
+  if (html.getAttribute('data-theme') === 'light') {
+    html.removeAttribute('data-theme');
+    icon.className = 'fa-solid fa-moon';
+    localStorage.setItem('theme', 'dark');
+  } else {
+    html.setAttribute('data-theme', 'light');
+    icon.className = 'fa-solid fa-sun';
+    localStorage.setItem('theme', 'light');
   }
 }
 
@@ -1526,10 +1689,8 @@ function triggerScan() {
     icon.className = 'fa-solid fa-rotate-right';
     btn.disabled = false;
     btn.style.opacity = '1';
-    document.getElementById('lastScan').textContent = 'just now';
-    renderTable(activeFilter === 'all' ? logs : logs.filter(l => l.severity === activeFilter));
-    showToast('Scan complete — 8 findings');
-  }, 2000);
+    loadLogs();
+  }, 1200);
 }
 
 function exportData() {
@@ -1555,11 +1716,14 @@ function showToast(msg) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  loadLogs();
+  const saved = localStorage.getItem('theme');
+  if (saved === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+    document.getElementById('themeIcon').className = 'fa-solid fa-sun';
+  }
 
-  setTimeout(() => animateCounter('val-prs',     142, '', 900), 200);
-  setTimeout(() => animateCounter('val-threats',  18, '', 900), 350);
-  setTimeout(() => animateCounter('val-hours',    72, 'h', 900), 500);
+  loadLogs();
+  setInterval(loadLogs, 30000);
 
   for (let i = 0; i < 4; i++) addFeedItem();
   setInterval(addFeedItem, 5000);
