@@ -1,6 +1,5 @@
 import ast
 
-# Using a generic configuration object to prevent circular imports during isolated testing
 class _ASTConfig:
     fn_length = 50
 
@@ -8,10 +7,6 @@ cfg = _ASTConfig()
 SECRET_NAMES = ["password", "passwd", "pwd", "secret", "api_key", "token", "private_key"]
 
 def _dfs_walk(tree):
-    """
-    DSA: Explicit Stack Depth-First Search (DFS)
-    Prevents Python recursion limit crashes on deeply nested enterprise code.
-    """
     stack = [tree]
     while stack:
         node = stack.pop()

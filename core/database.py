@@ -4,10 +4,9 @@ import datetime
 
 Base = declarative_base()
 
-# Define the SQL Table Structure
 class ReviewLog(Base):
     __tablename__ = "review_logs"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     repo_name = Column(String, index=True)
     pr_number = Column(Integer)
@@ -19,15 +18,12 @@ class ReviewLog(Base):
     ai_explanation = Column(Text)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
-# Initialize SQLite Database Connection
 engine = create_engine("sqlite:///./reviews.db", connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Create the file and tables automatically
 Base.metadata.create_all(bind=engine)
 
 def save_issues(repo_name: str, pr_number: int, sha: str, issues: list):
-    """Takes the LangGraph output and saves it to the local database."""
     db = SessionLocal()
     try:
         for issue in issues:
@@ -44,6 +40,6 @@ def save_issues(repo_name: str, pr_number: int, sha: str, issues: list):
             db.add(log)
         db.commit()
     except Exception as e:
-        print(f"❌ DB Error: {e}")
+        print(f"DB Error: {e}")
     finally:
         db.close()

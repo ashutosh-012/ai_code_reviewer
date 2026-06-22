@@ -8,7 +8,6 @@ from config import cfg
 from core.limiter import gh_limiter
 from core.cache import file_cache
 
-# Lightweight fallback HTTP functions to avoid depending on the external 'requests' package.
 class _SimpleResponse:
     def __init__(self, status_code: int, content: bytes):
         self.status_code = status_code
@@ -53,7 +52,6 @@ def _post(url: str, headers: dict | None = None, json_payload: dict | None = Non
     except Exception:
         return _SimpleResponse(0, b"")
 
-# Expose a 'requests'-like API used by this module
 class _RequestsShim:
     @staticmethod
     def get(url, headers=None, params=None, timeout=None):
@@ -99,7 +97,6 @@ class GHClient:
         return raw
 
     def _get_diff_lines(self, owner, repo, pr_num):
-        """Parse PR diffs to find which line numbers are valid for inline comments."""
         files = self.pr_files(owner, repo, pr_num)
         diff_lines = {}
         for f in files:
@@ -117,9 +114,6 @@ class GHClient:
                         current_line = int(m.group(1))
                 elif line.startswith("-"):
                     pass
-                elif line.startswith("+"):
-                    valid.add(current_line)
-                    current_line += 1
                 else:
                     valid.add(current_line)
                     current_line += 1
@@ -127,11 +121,8 @@ class GHClient:
         return diff_lines
 
     def post_review(self, owner, repo, pr_num, sha, summary, comments, has_critical):
-        # Get valid diff lines so inline comments land correctly
         diff_lines = self._get_diff_lines(owner, repo, pr_num)
-        print(f"DEBUG - Diff lines found for {len(diff_lines)} files")
 
-        # Split comments into inline-able vs overflow
         inline_comments = []
         overflow_comments = []
 
@@ -143,27 +134,43 @@ class GHClient:
                 continue
 
             agent = issue.get("agent", "").lower()
-            sev = issue.get("sev", "LOW").lower()
-            body = f"**[{sev} | {agent}]** {issue.get('msg', '')}"
-            if issue.get("ai_note"):
-                body += f"\n\n{issue['ai_note']}"
+            sev = issue.get("sev", "LOW")
+            body = f"**[{sev} | {agent.upper()}]** {issue.get('msg', '')}"
             if issue.get("fix"):
-                body += f"\n\nFix: `{issue['fix']}`"
+                body += f"\n\n> **Fix:** `{issue['fix']}`"
+            if issue.get("ai_note"):
+                body += f"\n\n---\n{issue['ai_note']}"
 
-            if f in diff_lines and line in diff_lines[f]:
+            file_valid_lines = diff_lines.get(f, set())
+
+            if file_valid_lines:
+                if line in file_valid_lines:
+                    target_line = line
+                else:
+                    target_line = min(file_valid_lines, key=lambda x: abs(x - line))
                 inline_comments.append({
                     "path": f,
-                    "line": line,
+                    "line": target_line,
                     "side": "RIGHT",
                     "body": body
                 })
             else:
                 overflow_comments.append(issue)
 
-        # Build summary with overflow issues table
-        full_summary = summary
+        sev_order = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+        sev_counts = {}
+        for issue in comments[:cfg.max_comments]:
+            s = issue.get("sev", "LOW")
+            sev_counts[s] = sev_counts.get(s, 0) + 1
+
+        sev_parts = []
+        for s in sev_order:
+            if s in sev_counts:
+                sev_parts.append(f"**{s}**: {sev_counts[s]}")
+        full_summary = summary + "\n\n" + " | ".join(sev_parts)
+
         if overflow_comments:
-            full_summary += "\n\n---\n\n**Issues on lines outside the diff:**\n\n"
+            full_summary += "\n\n---\n\n**Issues on unchanged lines:**\n\n"
             full_summary += "| # | Severity | File | Line | Agent | Issue | Fix |\n"
             full_summary += "|---|----------|------|------|-------|-------|-----|\n"
             for i, issue in enumerate(overflow_comments, 1):
@@ -187,20 +194,15 @@ class GHClient:
             "comments": inline_comments
         }
 
-        print(f"DEBUG - Posting {len(inline_comments)} inline + {len(overflow_comments)} overflow")
+        print(f"Posting {len(inline_comments)} inline + {len(overflow_comments)} overflow comments")
         r = requests.post(url, json=payload, headers=self.headers, timeout=15)
-        print(f"DEBUG - GitHub review response: {r.status_code}")
+        print(f"GitHub review response: {r.status_code}")
 
         if r.status_code in [200, 201]:
-            print("DEBUG - Review with inline comments posted successfully!")
             return True
 
-        print(f"DEBUG - Review failed: {r.json()}")
-
-        # Fallback: post everything as a single issue comment
-        print("DEBUG - Falling back to issue comment...")
+        print(f"Review failed: {r.json()}")
         comment_url = f"{self.base}/repos/{owner}/{repo}/issues/{pr_num}/comments"
-
         lines = [summary, "", "---", ""]
         lines.append("| # | Severity | File | Line | Agent | Issue | Fix |")
         lines.append("|---|----------|------|------|-------|-------|-----|")
@@ -216,7 +218,6 @@ class GHClient:
                 f"| {msg_text} "
                 f"| {fix_text} |"
             )
-
         body = "\n".join(lines)
         r2 = requests.post(comment_url, json={"body": body}, headers=self.headers, timeout=15)
         print(f"DEBUG - Fallback comment response: {r2.status_code}")

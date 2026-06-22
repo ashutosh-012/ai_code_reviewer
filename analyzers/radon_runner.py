@@ -7,25 +7,21 @@ def run_radon(content: str, fn: str) -> list:
     if not fn.endswith(".py"):
         return []
     try:
-        # Use "-" to read directly from standard input (RAM)
         r = subprocess.run(
             [sys.executable, "-m", "radon", "cc", "-", "-j", "-s"],
             input=content,
-            capture_output=True, 
-            text=True, 
-            encoding="utf-8", 
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
             timeout=30
         )
         if not r.stdout.strip():
             return []
         data = json.loads(r.stdout)
         issues = []
-        
-        # Radon uses '<stdin>' as the dictionary key when reading from RAM
         funcs = data.get("<stdin>", [])
-        if not funcs and data: 
+        if not funcs and data:
             funcs = list(data.values())[0] if isinstance(data, dict) else []
-
         for f in funcs:
             cc = f.get("complexity", 0)
             if cc <= cfg.cc_threshold:

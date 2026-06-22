@@ -8,24 +8,19 @@ def run_ruff(content: str, fn: str) -> list:
     if not fn.endswith(".py"):
         return []
     try:
-        # FIX: Send code directly through RAM using '-' and '--stdin-filename'
         r = subprocess.run(
             [sys.executable, "-m", "ruff", "check", "-", "--stdin-filename", fn, "--output-format", "json", "--no-cache"],
             input=content,
-            capture_output=True, 
-            text=True, 
+            capture_output=True,
+            text=True,
             encoding="utf-8",
             timeout=30
         )
-        
-        # Debugging hook just in case Ruff throws an internal error
         if r.stderr.strip() and not r.stdout.strip():
-            print(f"Ruff Internal Error: {r.stderr}")
+            print(f"Ruff error: {r.stderr}")
             return []
-
         if not r.stdout.strip():
             return []
-            
         issues = []
         for item in json.loads(r.stdout):
             code = item.get("code", "")

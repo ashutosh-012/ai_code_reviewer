@@ -6,13 +6,12 @@ def run_bandit(content: str, fn: str) -> list:
     if not fn.endswith(".py"):
         return []
     try:
-        # Use "-" to read directly from standard input (RAM)
         r = subprocess.run(
             [sys.executable, "-m", "bandit", "-", "-f", "json", "-q"],
             input=content,
-            capture_output=True, 
-            text=True, 
-            encoding="utf-8", 
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
             timeout=30
         )
         if not r.stdout.strip():
