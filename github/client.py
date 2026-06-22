@@ -190,7 +190,7 @@ class GHClient:
         payload = {
             "commit_id": sha,
             "body": full_summary,
-            "event": "REQUEST_CHANGES" if has_critical else "COMMENT",
+            "event": "COMMENT",
             "comments": inline_comments
         }
 
